@@ -14,7 +14,7 @@ legible) **and Quantum Impact** (a real finance problem against strong classical
 
 | | |
 |---|---|
-| **Run it** | Open the project on Qollab, pick a backend in **Select QPU**, press **Run**. About 40 s in the browser (measured on Qollab with an IonQ job), 25 s on a laptop. |
+| **Run it** | Open the project on Qollab, pick a backend in **Select QPU**, press **Run**. 37–39 s in the browser including the IonQ job (measured on Qollab), 25 s on a laptop. |
 | **What you get** | 9 annotated figures, each with a text description and numeric tables; one job on the selected backend, compared against the simulator's prediction |
 | **Honest result** | At this size classical brute force wins outright. The project shows *how* QAOA works and *which design choices* make it work, not a speedup claim. |
 
@@ -59,17 +59,31 @@ Sharpe 2.05, against +37.1%/yr (Sharpe 1.62) for continuous Markowitz and +34.9%
 (Sharpe 1.89) for equal weights across all six. One two-year window is anecdote, not evidence
 of skill. The run reports it as a sanity check on the estimates.
 
-**4. One job on IonQ Forte 1 shows real-device-style noise, and the free mitigation
-working on real shots.** The optimized circuit (Dicke + XY, p=1) runs as one job on the
-selected backend. Qollab's IonQ Forte 1 simulator models the device's noise. On it, only
-**59%** of 1,024 shots were valid portfolios, and P(best) fell from 17.8% to **6.7%**.
-The ideal circuit can never break the budget: compiled to IonQ's gate set (84 two-qubit
-gates) it keeps P(valid) = 1.000000 in a noiseless simulation, so all of those 41% are
-hardware errors. Discarding them lifts P(best) back to about **11%**, more than twice what
-random guessing gives (5%). The run also fits Step 5's depolarizing model to the measured
-shots, which tests that simple model against IonQ's own. On a noiseless backend the
-measured distribution matches the prediction to within shot noise (total variation about
-0.03–0.06 at 1,024 shots), and every shot is valid.
+**4. One job on IonQ Forte 1: real device noise, mitigation on real shots, and a test of our
+noise model.** The optimized circuit (Dicke + XY, p=1) runs as one job on the selected
+backend. On Qollab, the IonQ Forte 1 simulator runs IonQ's `forte-1` noise model. From the run
+output on Qollab:
+
+| 1,024 shots on IonQ Forte 1 (noise model `forte-1`) | noiseless prediction | measured | measured, invalid shots discarded |
+|---|---|---|---|
+| P(valid portfolio) | 100% | **58.1%** | 100% |
+| P(best portfolio) | 17.8% | 5.8% | **9.9%** (random valid guess: 5.0%) |
+| approximation ratio | 0.777 | 0.372 | **0.641** |
+
+- **Every invalid shot is a hardware error.** Compiled to IonQ's gate set (84 two-qubit
+  gates), the circuit keeps P(valid) = 1.000000 in a noiseless simulation. So the 42% of
+  shots that broke the budget can only come from noise.
+- **The free mitigation works on real shots.** Discarding those shots lifts P(best) from
+  5.8% to 9.9%, about twice random guessing.
+- **Step 5's simple noise model holds up.** Fitted to IonQ's shots, it gives an effective
+  two-qubit depolarizing error of **about 1.2%**. At that rate its predicted distribution
+  is **0.084** from the measured one in total variation, against 0.510 for the noiseless
+  prediction. An earlier run gave the same picture (59% valid, P(best) 6.7%).
+
+![Grouped bars for the 10 best portfolios plus all invalid picks: noiseless prediction, our noise model fitted at 1.2% two-qubit error, and the 1,024 shots measured on IonQ Forte 1. The fitted model tracks the measured bars closely, including 42% invalid picks that the noiseless prediction says should never happen](docs/figures/9_backend_check.png)
+
+On a noiseless backend, every shot is valid and the measured distribution matches the
+prediction to within shot noise (total variation about 0.03–0.06 at 1,024 shots).
 
 ## The figures
 
