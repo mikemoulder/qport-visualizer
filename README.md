@@ -101,7 +101,7 @@ All nine figures are in [docs/figures](docs/figures).
 
 | setting | default | meaning |
 |---|---|---|
-| `tickers` | `AAPL,MSFT,NVDA,JPM,XOM,JNJ` | 3–10 of AAPL, MSFT, NVDA, JPM, XOM, JNJ, WMT, NEE |
+| `tickers` | `AAPL MSFT NVDA JPM XOM JNJ` | 3–10 of AAPL, MSFT, NVDA, JPM, XOM, JNJ, WMT, NEE (spaces or commas) |
 | `budget` | `3` | how many assets to hold (equal weights) |
 | `risk_aversion` | `3.0` | `f(x) = risk_aversion × variance − return`; 0 chases return only |
 | `max_depth` | `3` | QAOA depths p = 1..max_depth are optimized and compared (max 5) |

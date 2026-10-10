@@ -5,6 +5,7 @@ settings form. Choose a backend with Select QPU; the run sends exactly one
 job to it (IonQ backends accept one job per run), and every other quantum
 evaluation runs on the in-browser simulator.
 """
+import re
 import textwrap
 import time
 
@@ -15,20 +16,17 @@ from qport.data import load_prices, split_returns, estimate
 from qport.problem import PortfolioProblem, label
 from qport.qaoa import QAOASolver, VARIANTS, cold_start
 
-DEFAULT_TICKERS = "AAPL,MSFT,NVDA,JPM,XOM,JNJ"
-
-
-def main(tickers: str = DEFAULT_TICKERS, budget: int = 3, risk_aversion: float = 3.0,
-         max_depth: int = 3, train_end: str = "2023-12-31", final_variant: str = "xy",
-         final_depth: int = 1, noise_study: bool = True, penalty_study: bool = False,
-         show_figures: bool = True, run_on_backend: bool = True):
+# Qollab builds the Run settings form by reading this signature as text: it must stay on ONE
+# line, start at column 0, and use literal defaults, or the run fails with a SyntaxError.
+# (The tickers default avoids commas so a naive split of the signature still works.)
+def main(tickers: str = "AAPL MSFT NVDA JPM XOM JNJ", budget: int = 3, risk_aversion: float = 3.0, max_depth: int = 3, train_end: str = "2023-12-31", final_variant: str = "xy", final_depth: int = 1, noise_study: bool = True, penalty_study: bool = False, show_figures: bool = True, run_on_backend: bool = True):  # noqa: E501
     t_start = time.perf_counter()
     viz.style()
     figs = show_figures
 
     # ------------------------------------------------------------------ settings
     market = load_prices()
-    chosen = [t.strip().upper() for t in tickers.split(",") if t.strip()]
+    chosen = [t.upper() for t in re.split(r"[,\s]+", tickers.strip()) if t]
     unknown = [t for t in chosen if t not in market.tickers]
     if unknown or not 3 <= len(chosen) <= 10:
         print(f"Tickers must be 3-10 of {', '.join(market.tickers)}; got {chosen} "
