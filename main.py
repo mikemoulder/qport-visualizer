@@ -264,6 +264,7 @@ def main(tickers: str = "AAPL MSFT NVDA JPM XOM JNJ", budget: int = 3, risk_aver
     report.show(*viz.fig_backtest(chosen, test_dates, portfolios), figs)
 
     # ------------------------------------------------------------------ 7. backend
+    hw = None
     if run_on_backend:
         report.header(7, "One job on the selected backend")
         backend = globals().get("backend")
@@ -273,7 +274,7 @@ def main(tickers: str = "AAPL MSFT NVDA JPM XOM JNJ", budget: int = 3, risk_aver
         if backend is None:
             print("  No backend was provided (choose one with Select QPU); skipping.")
         else:
-            run_backend(backend, problem, solvers[final_variant], r_final, final_variant, figs)
+            hw = run_backend(backend, problem, solvers[final_variant], r_final, final_variant, figs)
 
     # ------------------------------------------------------------------ summary
     report.header("✓", "What we learned")
@@ -299,6 +300,12 @@ def main(tickers: str = "AAPL MSFT NVDA JPM XOM JNJ", budget: int = 3, risk_aver
                          f"keeps a ratio of {shallow['approx_ratio']:.2f} vs "
                          f"{deep['approx_ratio']:.2f} at p={max_depth}; discarding invalid samples "
                          f"lifts p=1 back to {shallow['approx_ratio_post']:.2f}.")
+    if hw and hw["invalid"] > 0.01:
+        where = f"{hw['name']} (noise model: {hw['model']})" if hw["model"] else hw["name"]
+        lines.append(f"On {where}, "
+                     f"{hw['invalid']:.0%} of shots broke the budget, which only errors can do. "
+                     f"Discarding them lifted P(best) from {hw['p_best']:.1%} to {hw['p_best_kept']:.1%}; "
+                     f"the backend behaves like about {hw['e_fit']:.1%} two-qubit depolarizing error in our model.")
     for i, line in enumerate(lines, 1):
         print(textwrap_fill(f"{i}. {line}"))
     print(f"\n  Total run time {time.perf_counter() - t_start:.1f}s.")
@@ -335,16 +342,19 @@ def textwrap_fill(text):
 
 
 def run_backend(backend, problem, solver, res, variant, figs):
+    """Send the one job, compare it with the prediction, mitigate, and fit our noise model."""
     from qiskit import transpile
     name = getattr(backend, "name", type(backend).__name__)
+    model = getattr(getattr(backend, "options", None), "noise_model", None)
     qc = solver.full_circuit(res.p, res.gammas, res.betas, measure=True)
+    model_note = f" (noise model: {model})" if model else ""
     report.explain(f"""
         Sending the optimized {viz.METHOD[variant]['name']} circuit (p={res.p}) to {name} as a
-        single job. Qollab's Circuit and Probabilities panels show this exact job. Every
-        evaluation above ran on the in-browser simulator; this run checks the prediction
-        against an independent backend.""")
+        single job{model_note}. Qollab's Circuit and
+        Probabilities panels show this exact job. Every evaluation above ran on the in-browser
+        simulator; this run checks the prediction against an independent backend.""")
     try:
-        tqc = transpile(qc, backend)
+        tqc = transpile(qc, backend, optimization_level=1)
     except Exception as e:  # noqa: BLE001 - some backends transpile server-side
         print(f"  (local transpile skipped: {type(e).__name__}; submitting as built)")
         tqc = qc
@@ -353,27 +363,57 @@ def run_backend(backend, problem, solver, res, variant, figs):
         counts = backend.run(tqc).result().get_counts()
     except Exception as e:  # noqa: BLE001
         print(f"  Backend run failed: {type(e).__name__}: {e}")
-        return
+        return None
     shots = sum(counts.values())
     measured = np.zeros(2 ** problem.n)
     for bits, c in counts.items():
         measured[int(bits.replace(" ", ""), 2)] += c / shots
     print(f"  {shots} shots in {time.perf_counter() - t0:.1f}s on {name}.\n")
+
     ideal = res.probs
+    feas = problem.feasible
+    kept = noise.postselect(measured, feas)
+    e_fit, fitted, tvd_fit = noise.fit_error_rate(qc.remove_final_measurements(inplace=False),
+                                                  measured)
     tvd = 0.5 * np.abs(ideal - measured).sum()
-    seen = [k for k in np.argsort(-measured) if problem.feasible[k] and measured[k] > 0]
+    seen = [k for k in np.argsort(-measured) if feas[k] and measured[k] > 0]
     best_seen = min(seen, key=lambda k: problem.costs[k]) if seen else None
+    tick = problem.tickers
     report.table([
-        {"q": "P(best portfolio)", "i": f"{ideal[problem.optimum]:.1%}", "m": f"{measured[problem.optimum]:.1%}"},
-        {"q": "P(valid portfolio)", "i": f"{ideal[problem.feasible].sum():.1%}",
-         "m": f"{measured[problem.feasible].sum():.1%}"},
-        {"q": "most frequent valid pick", "i": viz.short(int(np.argmax(np.where(problem.feasible, ideal, 0))),
-                                                         problem.tickers),
-         "m": viz.short(seen[0], problem.tickers) if seen else "-"},
-        {"q": "best valid pick in the shots", "i": viz.short(problem.optimum, problem.tickers),
-         "m": viz.short(best_seen, problem.tickers) if best_seen is not None else "-"},
-        {"q": "total variation distance", "i": "0", "m": f"{tvd:.3f}"},
-    ], [("q", "", "{}"), ("i", "noiseless prediction", "{}"), ("m", f"measured ({name})", "{}")])
-    report.show(*viz.fig_hardware(problem, ideal, measured, name, variant, res.p), figs)
+        {"q": "P(best portfolio)", "i": f"{ideal[problem.optimum]:.1%}",
+         "m": f"{measured[problem.optimum]:.1%}", "k": f"{kept[problem.optimum]:.1%}"},
+        {"q": "P(valid portfolio)", "i": f"{ideal[feas].sum():.1%}", "m": f"{measured[feas].sum():.1%}",
+         "k": "100.0%"},
+        {"q": "approximation ratio", "i": f"{problem.approx_ratio(ideal):.3f}",
+         "m": f"{problem.approx_ratio(measured):.3f}", "k": f"{problem.approx_ratio(kept):.3f}"},
+        {"q": "most frequent valid pick", "i": viz.short(int(np.argmax(np.where(feas, ideal, 0))), tick),
+         "m": viz.short(seen[0], tick) if seen else "-", "k": viz.short(seen[0], tick) if seen else "-"},
+        {"q": "best valid pick in the shots", "i": viz.short(problem.optimum, tick),
+         "m": viz.short(best_seen, tick) if best_seen is not None else "-",
+         "k": viz.short(best_seen, tick) if best_seen is not None else "-"},
+        {"q": "total variation distance", "i": "0", "m": f"{tvd:.3f}", "k": "-"},
+    ], [("q", "", "{}"), ("i", "noiseless prediction", "{}"), ("m", f"measured ({name})", "{}"),
+        ("k", "measured, invalid discarded", "{}")])
+    invalid = 1 - measured[feas].sum()
+    if invalid > 0.01:
+        report.explain(f"""
+            {invalid:.0%} of the shots broke the budget. The ideal circuit cannot do that
+            (it never leaves the valid subspace), so every one of them is a hardware error.
+            Discarding them keeps {measured[feas].sum():.0%} of the shots and lifts P(best)
+            from {measured[problem.optimum]:.1%} to {kept[problem.optimum]:.1%}
+            (random valid guess: {1 / feas.sum():.1%}).
+
+            Fitting Step 5's depolarizing model to these shots gives an effective two-qubit
+            error of about {e_fit:.1%}: at that rate the model's prediction sits {tvd_fit:.3f} from the
+            measured distribution in total variation, against {tvd:.3f} for the noiseless
+            prediction. So the simple noise model above captures what this backend does.""")
+    else:
+        report.explain(f"""
+            Every shot is a valid portfolio and the distribution matches the noiseless
+            prediction to within shot noise (total variation {tvd:.3f}); the best-fit
+            depolarizing error is {e_fit:.1%}.""")
+    report.show(*viz.fig_hardware(problem, ideal, measured, name, variant, res.p, fitted, e_fit), figs)
     print(f"  Most frequent bitstring: {label(int(np.argmax(measured)), problem.n)} "
           "(qubit 0 = first ticker, rightmost)")
+    return {"name": name, "model": model, "invalid": invalid, "p_best": measured[problem.optimum],
+            "p_best_kept": kept[problem.optimum], "e_fit": e_fit, "tvd": tvd, "tvd_fit": tvd_fit}

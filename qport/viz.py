@@ -365,29 +365,45 @@ def fig_backtest(tickers, test_dates, portfolios):
 
 
 # --- Figure 9: backend run vs simulation ------------------------------------------------------
-def fig_hardware(problem, ideal, measured, backend_name, variant, p, top=10):
+def fig_hardware(problem, ideal, measured, backend_name, variant, p, fitted=None, e_fit=0.0, top=10):
+    """Measured shots vs the noiseless prediction and, if given, the best-fit noise model."""
     tickers = problem.tickers
     feas = np.flatnonzero(problem.feasible)
     order = feas[np.argsort(problem.costs[feas])][:top]
     labels = [("★ " if k == problem.optimum else "") + short(k, tickers) for k in order]
     labels.append("any invalid pick")
-    ideal_v = np.append(ideal[order], 1 - ideal[problem.feasible].sum())
-    meas_v = np.append(measured[order], 1 - measured[problem.feasible].sum())
-    fig, ax = plt.subplots(figsize=(11.5, 4.6))
-    _suptitle(fig, f"9 · One job on {backend_name}: measured shots vs the noiseless prediction "
+
+    def view(pr):
+        return np.append(pr[order], 1 - pr[problem.feasible].sum())
+
+    series = [("noiseless prediction", view(ideal), {"color": AXIS, "edgecolor": INK_2, "linewidth": 0.8})]
+    if fitted is not None and e_fit > 0:
+        series.append((f"our noise model, best fit: {e_fit:.1%} two-qubit error", view(fitted),
+                       {"color": SURFACE, "edgecolor": INK_2, "hatch": "///", "linewidth": 0.8}))
+    series.append((f"measured on {backend_name}", view(measured),
+                   {"color": METHOD[variant]["color"], "edgecolor": SURFACE}))
+    fig, ax = plt.subplots(figsize=(11.5, 5.0))
+    _suptitle(fig, f"9 · One job on {backend_name}: measured shots vs prediction "
                    f"({METHOD[variant]['name']}, p={p})")
     x = np.arange(len(labels))
-    ax.bar(x - 0.2, ideal_v, 0.38, color=AXIS, edgecolor=INK_2, linewidth=0.8, label="noiseless prediction")
-    bars = ax.bar(x + 0.2, meas_v, 0.38, color=METHOD[variant]["color"], edgecolor=SURFACE,
-                  label=f"measured on {backend_name}")
-    ax.bar_label(bars, [f"{v:.0%}" if v >= 0.05 else "" for v in meas_v], fontsize=8, padding=2)
+    width = 0.8 / len(series)
+    for i, (name, vals, style) in enumerate(series):
+        bars = ax.bar(x + (i - (len(series) - 1) / 2) * width, vals, width * 0.92, label=name, **style)
+        if name.startswith("measured"):
+            ax.bar_label(bars, [f"{v:.0%}" if v >= 0.05 else "" for v in vals], fontsize=8, padding=2)
     ax.set_xticks(x, labels, rotation=30, ha="right", fontsize=9)
     ax.set_ylabel("fraction of shots")
-    ax.legend(loc="upper right")
+    ax.set_ylim(0, max(v.max() for _, v, _ in series) * 1.15)
+    ax.legend(loc="lower left", bbox_to_anchor=(0, 1.0), ncol=len(series), fontsize=9)
     ax.grid(axis="x", visible=False)
     fig.tight_layout()
     tvd = 0.5 * np.abs(ideal - measured).sum()
-    desc = (f"Paired bars, prediction vs measured, for the best valid portfolios plus all invalid picks. "
-            f"Best portfolio: predicted {ideal[problem.optimum]:.1%}, measured {measured[problem.optimum]:.1%}. "
-            f"Total variation distance between the two distributions: {tvd:.3f}.")
+    desc = ("Grouped bars for the best valid portfolios plus all invalid picks: noiseless prediction"
+            + (", best-fit noise model" if len(series) == 3 else "") + " and measured shots. "
+            f"Best portfolio: predicted {ideal[problem.optimum]:.1%}, measured "
+            f"{measured[problem.optimum]:.1%}; invalid picks: measured "
+            f"{1 - measured[problem.feasible].sum():.1%}. Total variation distance to the noiseless "
+            f"prediction: {tvd:.3f}"
+            + (f"; to the noise model at {e_fit:.1%}: {0.5 * np.abs(fitted - measured).sum():.3f}."
+               if len(series) == 3 else "."))
     return fig, desc

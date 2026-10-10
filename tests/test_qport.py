@@ -184,6 +184,14 @@ def test_noise_breaks_the_constraint_and_postselection_restores_it():
     assert abs(kept[prob.feasible].sum() - 1) < 1e-12
 
 
+def test_noise_fit_recovers_a_known_error_rate():
+    prob = random_problem(5, 2, seed=4)
+    circ = QAOASolver(prob, "xy").full_circuit(1, [0.7], [-0.4], measure=False)
+    target = noise.noisy_probs(circ, 0.0125)
+    e2, _, tvd = noise.fit_error_rate(circ, target / target.sum())
+    assert abs(e2 - 0.0125) < 0.001 and tvd < 0.01
+
+
 # --- conventions and evaluation ---------------------------------------------------------
 def test_counts_bitstring_maps_to_asset_index():
     # Prepare x = assets {0, 2} (k = 0b000101 = 5) and check the counts key decodes to k.

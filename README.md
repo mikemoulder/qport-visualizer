@@ -14,7 +14,7 @@ legible) **and Quantum Impact** (a real finance problem against strong classical
 
 | | |
 |---|---|
-| **Run it** | Open the project on Qollab, pick a backend in **Select QPU**, press **Run**. About 25 s on a laptop. |
+| **Run it** | Open the project on Qollab, pick a backend in **Select QPU**, press **Run**. About 40 s in the browser (measured on Qollab with an IonQ job), 25 s on a laptop. |
 | **What you get** | 9 annotated figures, each with a text description and numeric tables; one job on the selected backend, compared against the simulator's prediction |
 | **Honest result** | At this size classical brute force wins outright. The project shows *how* QAOA works and *which design choices* make it work, not a speedup claim. |
 
@@ -59,10 +59,17 @@ Sharpe 2.05, against +37.1%/yr (Sharpe 1.62) for continuous Markowitz and +34.9%
 (Sharpe 1.89) for equal weights across all six. One two-year window is anecdote, not evidence
 of skill. The run reports it as a sanity check on the estimates.
 
-**4. The hardware check agrees with the simulation.** The optimized circuit (Dicke + XY,
-p=1) runs as one job on the selected backend. On a noiseless simulator the measured
-distribution matches the prediction to within shot noise (total variation distance
-0.03–0.05 at 1,024 shots, varying run to run), and every shot is a valid portfolio.
+**4. One job on IonQ Forte 1 shows real-device-style noise, and the free mitigation
+working on real shots.** The optimized circuit (Dicke + XY, p=1) runs as one job on the
+selected backend. Qollab's IonQ Forte 1 simulator models the device's noise. On it, only
+**59%** of 1,024 shots were valid portfolios, and P(best) fell from 17.8% to **6.7%**.
+The ideal circuit can never break the budget: compiled to IonQ's gate set (84 two-qubit
+gates) it keeps P(valid) = 1.000000 in a noiseless simulation, so all of those 41% are
+hardware errors. Discarding them lifts P(best) back to about **11%**, more than twice what
+random guessing gives (5%). The run also fits Step 5's depolarizing model to the measured
+shots, which tests that simple model against IonQ's own. On a noiseless backend the
+measured distribution matches the prediction to within shot noise (total variation about
+0.03–0.06 at 1,024 shots), and every shot is valid.
 
 ## The figures
 
@@ -76,7 +83,7 @@ distribution matches the prediction to within shot noise (total variation distan
 | 6 | Approximation ratio and P(best) vs depth p | What extra layers buy without noise |
 | 7 | Approximation ratio vs two-qubit error, per depth | What survives hardware noise, and the free mitigation |
 | 8 | Growth of $1 out of sample, plus allocations | Whether the picks held up on unseen data |
-| 9 | Backend shots vs the noiseless prediction | Checking the simulation against an independent backend |
+| 9 | Backend shots vs the noiseless prediction and the best-fit noise model | Real noise, post-selection on real shots, and whether our noise model holds up |
 
 ![Two energy landscapes over the angles gamma and beta, one per QAOA design, each with the optimizer's path walking from near zero to the darkest (lowest-cost) region](docs/figures/3_landscapes.png)
 
@@ -93,7 +100,7 @@ All nine figures are in [docs/figures](docs/figures).
 ### On Qollab
 
 1. Open the project and press **Run** with the **Built-in simulator** (or any local
-   simulator, including the IBM noise-model ones, which show real noise in Figure 9).
+   simulator, including the IBM noise-model ones, which show device noise in Figure 9).
 2. Optionally pick an IonQ simulator in **Select QPU**. The run sends **exactly one job**
    (IonQ backends accept one per run); every other circuit evaluation runs in the browser.
 3. Change any setting in the **Run settings** form, which Qollab builds from `main()`'s
@@ -121,7 +128,7 @@ With 8 assets the noise study sweeps fewer error rates, because density matrices
 pip install -r requirements-dev.txt
 python run_local.py                                  # figures are saved to out/
 python run_local.py budget=2 max_depth=2 noise_study=False
-python -m pytest tests/                              # 20 correctness tests
+python -m pytest tests/                              # 21 correctness tests
 ```
 
 `run_local.py` stands in for Qollab: it injects Qiskit's `BasicSimulator` as the `backend`
@@ -210,13 +217,14 @@ least once with 99% probability.
 
 ## Verification
 
-`tests/test_qport.py` (20 tests) checks every claim above:
+`tests/test_qport.py` (21 tests) checks every claim above:
 - the QUBO and the Ising Hamiltonian agree on every bitstring
 - the penalized minimum is the constrained optimum, and too small a penalty is rejected
 - both Dicke preparations are exact, and the selector never picks the costlier one
 - the XY mixer never leaves the valid subspace, for random angles at p=1..3
 - the statevector kernel matches `Statevector`, `StatevectorEstimator` and Qiskit's `qaoa_ansatz`
 - the noise kernel matches `DensityMatrix` with Kraus channels, and is exact at zero noise
+- fitting the noise model recovers a known error rate
 - the counts bitstring decodes to the right assets on a Qiskit backend
 - the backtest arithmetic and the Markowitz constraints hold
 
@@ -249,7 +257,7 @@ qport/noise.py          depolarizing density-matrix study, post-selection
 qport/viz.py            the nine figures (accessible palette, text descriptions)
 qport/report.py         console narration and tables
 run_local.py            run outside Qollab (BasicSimulator backend, PNG figures)
-tests/test_qport.py     20 correctness tests
+tests/test_qport.py     21 correctness tests
 tools/fetch_prices.py   how data/prices.csv was downloaded
 data/prices.csv         daily adjusted closes, 8 tickers, 2021-2025 (see data/README.md)
 ```

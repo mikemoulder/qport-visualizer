@@ -141,3 +141,22 @@ def postselect(probs, feasible):
     kept = np.where(feasible, probs, 0.0)
     total = kept.sum()
     return kept / total if total > 0 else kept
+
+
+def fit_error_rate(circuit, measured, grid=None):
+    """Depolarizing rate whose prediction is closest (total variation) to measured shots.
+
+    Coarse grid, then a finer one around the best point. Returns (e2, predicted, tvd).
+    """
+    def tvd_at(e2):
+        pr = noisy_probs(circuit, e2)
+        pr = pr / pr.sum()
+        return 0.5 * np.abs(pr - measured).sum(), pr
+
+    grid = np.linspace(0, 0.03, 13) if grid is None else grid
+    scored = [(tvd_at(e)[0], e) for e in grid]
+    _, best = min(scored)
+    step = grid[1] - grid[0]
+    fine = np.clip(np.linspace(best - step, best + step, 9), 0, None)
+    tvd, e2 = min((tvd_at(e)[0], e) for e in fine)
+    return float(e2), tvd_at(e2)[1], float(tvd)
