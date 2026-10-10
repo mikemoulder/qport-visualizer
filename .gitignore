@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+out/
+data/prices_refetched.csv
+.pytest_cache/
+.venv/
+
+# local notes, not part of the project
+hackathon_requirement.md
